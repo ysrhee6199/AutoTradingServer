@@ -13,18 +13,18 @@ async def handle_webhook(request: Request):
     raw = (await request.body()).decode("utf-8", errors="replace")
 
     # 로그에 원문을 남기면 원인 바로 보임
-    print("=== RAW BODY START ===")
-    await send_telegram_message(f"[WEBHOOK RAW]\n{raw}")
-    print("=== RAW BODY END ===")
+    await send_telegram_message(f"[Bot Alert]\n{raw}")
+    return JSONResponse({"ok": True})
 
-    # 1) JSON 시도
-    try:
-        data = json.loads(raw) if raw.strip() else {}
-    except json.JSONDecodeError:
-        # 2) JSON 아니면 텍스트로 처리
-        data = {"_raw": raw}
+@app.post("/webhook2")
+async def handle_webhook(request: Request):
+    raw = (await request.body()).decode("utf-8", errors="replace")
 
-    print("PARSED:", data)
+    # 로그에 원문을 남기면 원인 바로 보임
+    if(raw == "LONG POSITION" or raw == "SHORT POSITION"):
+        pass
+    else:
+        await send_telegram_message(f"[Bot Alert]\n{raw}")
     return JSONResponse({"ok": True})
     
 if __name__ == "__main__":
