@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Nexus Trading Dashboard</title>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+    <div class="app-container">
+        <!-- Sidebar Navigation -->
+        <nav class="sidebar glass-panel">
+            <div class="logo">
+                <div class="logo-icon"></div>
+                <h2>NEXUS</h2>
+            </div>
+            <ul class="nav-links">
+                <li class="active"><a href="#">Dashboard</a></li>
+                <li><a href="#">Positions</a></li>
+                <li><a href="#">History</a></li>
+                <li><a href="#">Settings</a></li>
+            </ul>
+        </nav>
+
+        <!-- Main Content Area -->
+        <main class="main-content">
+            <header class="topbar">
+                <h1>Overview</h1>
+                <div class="status-indicator">
+                    <span class="dot pulse-green"></span>
+                    System Online
+                </div>
+            </header>
+
+            <!-- Hero Metrics Row -->
+            <section class="metrics-grid">
+                <div class="metric-card glass-panel">
+                    <h3 class="metric-label">Total Balance</h3>
+                    <div class="metric-value highlight" id="totalBalance">$--.--</div>
+                    <div class="metric-sub positive" id="dailyPnl">+--.-- (+-.--%)</div>
+                </div>
+
+                <div class="metric-card glass-panel">
+                    <h3 class="metric-label">Win Rate</h3>
+                    <div class="metric-value" id="winRate">--%</div>
+                    <div class="metric-sub" id="winLoseCount">W: -- / L: --</div>
+                </div>
+
+                <div class="metric-card glass-panel">
+                    <h3 class="metric-label">Active Market</h3>
+                    <div class="metric-value">BTC/USDT</div>
+                    <div class="metric-sub neutral">USDT-M Futures</div>
+                </div>
+            </section>
+
+            <!-- Active Positions & Chart Row -->
+            <section class="content-grid">
+                <div class="active-position glass-panel">
+                    <div class="panel-header">
+                        <h2>Current Position</h2>
+                    </div>
+                    <div class="position-details" id="currentPosition">
+                        <!-- Loaded dynamically -->
+                        <div class="empty-state">No Active Position</div>
+                    </div>
+                </div>
+
+                <div class="performance-chart glass-panel">
+                    <div class="panel-header">
+                        <h2>Performance</h2>
+                    </div>
+                    <div class="chart-container">
+                        <!-- Placeholder for chart -->
+                        <div class="mock-chart"></div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- Trade History / Webhook Logs -->
+            <section class="history-section glass-panel">
+                <div class="panel-header">
+                    <h2>Recent Signals & Trades</h2>
+                </div>
+                <div class="table-container">
+                    <table class="history-table">
+                        <thead>
+                            <tr>
+                                <th>Time</th>
+                                <th>Signal</th>
+                                <th>Action</th>
+                                <th>Status</th>
+                            </tr>
+                        </thead>
+                        <tbody id="historyTableBody">
+                            <!-- Loaded dynamically -->
+                            <tr>
+                                <td colspan="4" class="text-center empty-state">Waiting for signals...</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </section>
+        </main>
+    </div>
+
+    <script src="/static/app.js"></script>
+</body>
+</html>

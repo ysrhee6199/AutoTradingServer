@@ -1,15 +1,26 @@
 # webhook_server.py
 import uvicorn
 from fastapi import FastAPI, Request
-from fastapi.responses import JSONResponse
+from fastapi.responses import JSONResponse, FileResponse
+from fastapi.staticfiles import StaticFiles
 import json
+import os
 from message import send_telegram_message
 import trading
 
 app = FastAPI()
+
+# Mount the static directory to serve CSS and JS files
+app.mount("/static", StaticFiles(directory="static"), name="static")
+
 prev_balance = 0.0
 win = 0
 lose = 0
+
+@app.get("/")
+async def serve_dashboard():
+    # Serve the main index.html file for the UI
+    return FileResponse(os.path.join("static", "index.html"))
 
 @app.post("/webhook")
 async def handle_webhook(request: Request):
