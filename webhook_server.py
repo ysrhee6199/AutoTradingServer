@@ -29,4 +29,6 @@ async def handle_webhook(request: Request):
     
 if __name__ == "__main__":
     #uvicorn.run(app, host="0.0.0.0", port=443, ssl_keyfile="key.pem", ssl_certfile="cert.pem")
+    await send_telegram_message(f"[Bot Alert]\nServer Start!")
     uvicorn.run(app, host="0.0.0.0", port=8000)
+    await send_telegram_message(f"[Bot Alert]\nServer End")
