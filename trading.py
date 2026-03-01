@@ -56,21 +56,27 @@ def get_usdtm_futures_balance():
         "Content-Type": "application/json"
     }
 
-    response = requests.get(BASE_URL + path,
-                            headers=headers,
-                            params=query,
-                            timeout=10)
+    response = requests.get(
+        BASE_URL + path,
+        headers=headers,
+        params=query,
+        timeout=10
+    )
 
     response.raise_for_status()
     result = response.json()
+
     if result.get("code") == "00000":
         for acct in result.get("data", []):
             if acct.get("marginCoin") == "USDT":
-                print("\n=== USDT-M Futures ===")
-                print("Available      :", acct.get("available"))
-                print("AccountEquity  :", acct.get("accountEquity"))
-                print("Locked         :", acct.get("locked"))
-                print("Unrealized P/L :", acct.get("unrealizedPL"))
+                return float(acct.get("available", 0.0))
+
+    return 0.0
+
+
+
+
+
 def _json_dumps_compact(obj) -> str:
     # 서명에 들어가는 body는 "공백 없는" JSON 문자열로 고정하는 게 안전
     return json.dumps(obj, separators=(",", ":"), ensure_ascii=False)
@@ -228,11 +234,11 @@ def place_market_order_open(side: str, margin_usdt: float = 100.0, leverage: int
 
 
 def open_long_btcusdt_isolated_50x_100usdt():
-    return place_market_order_open("buy", margin_usdt=100.0, leverage=2)
+    return place_market_order_open("buy", margin_usdt=50.0, leverage=2)
 
 
 def open_short_btcusdt_isolated_50x_100usdt():
-    return place_market_order_open("sell", margin_usdt=100.0, leverage=2)
+    return place_market_order_open("sell", margin_usdt=50.0, leverage=2)
 
 def _round_down_to_step(x: float, step: float) -> float:
     return math.floor(x / step) * step
@@ -298,15 +304,69 @@ def close_position_percent(symbol: str, hold_side: str, percent: float):
     }
     return _request("POST", "/api/v2/mix/order/place-order", body_dict=body, auth=True)
 
-if __name__ == "__main__":
+def get_current_position_side(symbol: str):
+    """
+    현재 포지션 방향 반환
+
+    return:
+        "long"  → 롱 포지션 존재
+        "short" → 숏 포지션 존재
+        "both"  → 롱/숏 동시에 존재 (hedge 모드)
+        "none"  → 포지션 없음
+    """
+
+    pos = _request(
+        "GET",
+        "/api/v2/mix/position/all-position",
+        query={
+            "productType": PRODUCT_TYPE,
+            "marginCoin": MARGIN_COIN
+        },
+        auth=True
+    )
+
+    items = pos.get("data") or []
+
+    has_long = False
+    has_short = False
+
+    for p in items:
+        if p.get("symbol") != symbol:
+            continue
+
+        size = float(p.get("total") or 0)
+        if size <= 0:
+            continue
+
+        hold_side = str(p.get("holdSide", "")).lower()
+
+        if hold_side == "long":
+            has_long = True
+        elif hold_side == "short":
+            has_short = True
+
+    if has_long and has_short:
+        return "both"
+    elif has_long:
+        return "long"
+    elif has_short:
+        return "short"
+    else:
+        return "none"
+
+#if __name__ == "__main__":
    # get_usdtm_futures_balance()
-  #  open_long_btcusdt_isolated_50x_100usdt()
+    #open_short_btcusdt_isolated_50x_100usdt()
     # 롱 전량 청산
   #  close_long_btcusdt_market()
     # 숏 전량 청산
    #close_short_btcusdt_market())
-    print(get_position_for("BTCUSDT", "long"))
-    print(close_position_percent("BTCUSDT", "long", 100))   # 롱 50% 청산
+    #side = get_current_position_side("BTCUSDT")
+    #print("현재 포지션:", side)
+    #print(close_position_percent("BTCUSDT", "long", 100))   # 롱 50% 청산
+    #side = get_current_position_side("BTCUSDT")
+    #print("현재 포지션:", side)
+  # get_usdtm_futures_balance()
    # get_usdtm_futures_balance()
 
 
