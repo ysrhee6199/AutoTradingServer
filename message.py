@@ -2,8 +2,8 @@ import os
 from telegram import Bot
 from telegram.error import TelegramError
 
-TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "8746542984:AAGtjr9DUg2-b6gqbjXo0HsJjBU6ztWfV9Q")
-TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "-1003882712477")
+TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+TELEGRAM_CHAT_ID = os.getenv("TELEGRAM_CHAT_ID", "")
 
 
 async def send_telegram_message(text: str) -> None:
