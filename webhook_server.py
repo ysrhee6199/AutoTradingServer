@@ -29,6 +29,7 @@ async def handle_webhook(request: Request):
 
     cur_pos = trading.get_current_position_side("BTCUSDT")
     if cur_pos == "none":
+        prev_balance = trading.get_usdtm_futures_balance()
         trading.place_market_order_open(sig, margin_usdt=50.0, leverage=50)
     else:
         trading.close_position_percent("BTCUSDT", "long", 100)
