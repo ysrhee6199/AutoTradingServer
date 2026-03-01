@@ -34,14 +34,14 @@ async def handle_webhook(request: Request):
         trading.close_position_percent("BTCUSDT", "long", 100)
         trading.close_position_percent("BTCUSDT", "short", 100)
         cur_balance = trading.get_usdtm_futures_balance()
-        if(cur_balance - prev_balance > 0):
+        if(cur_balance - prev_balance > 0.0):
             win+=1
         else:
             lose+=1
 
         prev_balance = cur_balance
         trading.place_market_order_open(sig, margin_usdt=50.0, leverage=50)
-        await send_telegram_message(f"[Bot Alert]\nWin : {win}, Lose : {lose}")
+        await send_telegram_message(f"[Bot Alert]\nCurrent_balance : {prev_balance} \nWin : {win}, Lose : {lose}")
 
     return JSONResponse({"ok": True})
 
