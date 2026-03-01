@@ -3,8 +3,10 @@ import uvicorn
 from fastapi import FastAPI, Request
 from fastapi.responses import JSONResponse
 import json
+from message import send_telegram_message
 
 app = FastAPI()
+
 
 @app.post("/webhook")
 async def handle_webhook(request: Request):
@@ -12,7 +14,7 @@ async def handle_webhook(request: Request):
 
     # 로그에 원문을 남기면 원인 바로 보임
     print("=== RAW BODY START ===")
-    print(raw)
+    await send_telegram_message(f"[WEBHOOK RAW]\n{raw}")
     print("=== RAW BODY END ===")
 
     # 1) JSON 시도
