@@ -53,7 +53,7 @@ CREATE INDEX IF NOT EXISTS idx_trade_event_trade_time
 
 class DB:
     def __init__(self, database_url: str | None = None) -> None:
-        self.database_url = database_url or os.environ.get("DATABASE_URL")
+        self.database_url = database_url or os.getenv("DATABASE_URL", "")
         if not self.database_url:
             raise RuntimeError("DATABASE_URL is not set. Put it in .env or environment variables.")
 
