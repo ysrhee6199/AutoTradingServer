@@ -74,6 +74,42 @@ def get_usdtm_futures_balance():
     return 0.0
 
 
+def get_usdtm_futures_total_equity():
+    path = "/api/v2/mix/account/accounts"
+    query = {"productType": "USDT-FUTURES"}
+    ts_ms = str(int(time.time() * 1000))
+
+    headers = {
+        "ACCESS-KEY": API_KEY,
+        "ACCESS-SIGN": make_sign(ts_ms, "GET", path, query=query),
+        "ACCESS-PASSPHRASE": API_PASSPHRASE,
+        "ACCESS-TIMESTAMP": ts_ms,
+        "locale": "en-US",
+        "Content-Type": "application/json"
+    }
+
+    response = requests.get(
+        BASE_URL + path,
+        headers=headers,
+        params=query,
+        timeout=10
+    )
+
+    response.raise_for_status()
+    result = response.json()
+
+    if result.get("code") == "00000":
+        for acct in result.get("data", []):
+            if acct.get("marginCoin") == "USDT":
+                # API 버전/설정에 따라 총 잔액 필드명이 다를 수 있어 우선순위로 조회
+                for key in ("usdtEquity", "accountEquity", "equity", "available"):
+                    v = acct.get(key)
+                    if v is not None:
+                        return float(v)
+
+    return 0.0
+
+
 
 
 
@@ -368,5 +404,4 @@ def get_current_position_side(symbol: str):
     #print("현재 포지션:", side)
   # get_usdtm_futures_balance()
    # get_usdtm_futures_balance()
-
 
