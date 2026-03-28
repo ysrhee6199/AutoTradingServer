@@ -27,7 +27,7 @@ ETH_LEVERAGE = 3
 cur_balance = 0
 SIGNAL_MAP = {
     "buy": "buy",
-    "SHORT POSITION": "sell",
+    "sell": "sell",
     "exit_long": "exit",
     "exit_short": "exit",
 }
