@@ -220,7 +220,17 @@ def main():
         raise RuntimeError(f"매수 주문 상태가 예상과 다릅니다: {status}")
 
     executed_qty = Decimal(executed_qty_raw)
-    sell_qty = floor_to_step(executed_qty, step_size)
+
+    fills = buy.get("fills", [])
+    commission_btc = Decimal("0")
+s
+    for f in fills:
+        if f.get("commissionAsset") == "BTC":
+            commission_btc += Decimal(f["commission"])
+
+    net_qty = executed_qty - commission_btc
+    sell_qty = floor_to_step(net_qty, step_size)
+    qty_str = decimal_to_str(sell_qty)
 
     if sell_qty < min_qty:
         raise RuntimeError(f"체결 수량이 최소 주문 수량보다 작습니다: {sell_qty} < {min_qty}")
