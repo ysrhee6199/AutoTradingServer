@@ -61,12 +61,19 @@ def signed_request(method: str, path: str, params: dict):
 
     if not r.ok:
         raise RuntimeError(f"HTTP {r.status_code} | {r.text}")
+    return r.json()
 
+
+def public_get(path: str, params: dict | None = None):
+    url = f"{BASE_URL}{path}"
+    r = session.get(url, params=params or {}, timeout=20)
+    if not r.ok:
+        raise RuntimeError(f"HTTP {r.status_code} | {r.text}")
     return r.json()
 
 
 def get_exchange_info(symbol: str):
-    return signed_request("GET", "/api/v3/exchangeInfo", {"symbol": symbol})
+    return public_get("/api/v3/exchangeInfo", {"symbol": symbol})
 
 
 def get_symbol_filters(symbol: str):
