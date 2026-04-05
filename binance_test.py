@@ -96,6 +96,8 @@ def get_symbol_filters(symbol: str):
 
 def floor_to_step(value: Decimal, step: str) -> Decimal:
     step_dec = Decimal(step)
+    if step_dec == 0:
+        return value
     return (value // step_dec) * step_dec
 
 
@@ -198,7 +200,7 @@ def main():
     market_lot = filters.get("MARKET_LOT_SIZE")
     lot_size = filters.get("LOT_SIZE")
 
-    qty_filter = market_lot if market_lot else lot_size
+    qty_filter = filters["LOT_SIZE"]
     if not qty_filter:
         raise RuntimeError("LOT_SIZE / MARKET_LOT_SIZE filter not found.")
 
