@@ -177,15 +177,11 @@ async def handle_webhook3(request: Request):
     # 2) STOP LOSS UPDATE ALERT
     if event_type == "LONG_SL_UPDATE":
         active_sl = data.get("activeLongSL")
-        trail_sl = data.get("trailLongSL")
-        avg_price = data.get("avgPrice")
 
         msg = (
             f"[TEST] Binance BTCUSD 30m \n"
             f"[BTCUSD] LONG SL UPDATE\n"
-            f"AvgPrice: {fmt(avg_price)}\n"
             f"Active SL: {fmt(active_sl)}\n"
-            f"Trail SL: {fmt(trail_sl)}"
         )
 
         await send_telegram_message(msg)
@@ -193,15 +189,11 @@ async def handle_webhook3(request: Request):
 
     if event_type == "SHORT_SL_UPDATE":
         active_sl = data.get("activeShortSL")
-        trail_sl = data.get("trailShortSL")
-        avg_price = data.get("avgPrice")
 
         msg = (
             f"[TEST] Binance BTCUSD 30m \n"
             f"[BTCUSD] SHORT SL UPDATE\n"
-            f"AvgPrice: {fmt(avg_price)}\n"
             f"Active SL: {fmt(active_sl)}\n"
-            f"Trail SL: {fmt(trail_sl)}"
         )
 
         await send_telegram_message(msg)
@@ -210,13 +202,11 @@ async def handle_webhook3(request: Request):
     # 3) EXIT ALERT
     if event_type == "LONG_EXIT":
         reason = data.get("reason")
-        exit_price = data.get("exitPrice")
 
         msg = (
             f"[TEST] Binance BTCUSD 30m \n"
             f"[BTCUSD] LONG EXIT\n"
             f"Reason: {reason}\n"
-            f"ExitPrice: {fmt(exit_price)}"
         )
 
         await send_telegram_message(msg)
@@ -224,13 +214,11 @@ async def handle_webhook3(request: Request):
 
     if event_type == "SHORT_EXIT":
         reason = data.get("reason")
-        exit_price = data.get("exitPrice")
 
         msg = (
             f"[TEST] Binance BTCUSD 30m \n"
             f"[BTCUSD] SHORT EXIT\n"
             f"Reason: {reason}\n"
-            f"ExitPrice: {fmt(exit_price)}"
         )
 
         await send_telegram_message(msg)
