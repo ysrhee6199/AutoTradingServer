@@ -6,6 +6,7 @@ from fastapi.responses import JSONResponse
 import trading
 from message import send_telegram_message
 from db import DB
+import json
 
 app = FastAPI()
 
@@ -69,7 +70,7 @@ async def handle_webhook(request: Request):
         if cur_pos in ("short", "both"):
             await run_in_threadpool(trading.close_position_percent, BTC_SYMBOL, "short", 100)
     
-    await send_telegram_message(f"[BTCUSDT]\n{raw}")
+    await send_telegram_message(f"[Bitget][BTCUSDT]\n{raw}")
     return JSONResponse({"ok": True})
 
 
@@ -102,9 +103,143 @@ async def handle_webhook2(request: Request):
         if cur_pos in ("short", "both"):
             await run_in_threadpool(trading.close_position_percent, ETH_SYMBOL, "short", 100)
     
-    await send_telegram_message(f"[ETHUSDT]\n{raw}")
+    await send_telegram_message(f"[Bitget][ETHUSDT]\n{raw}")
     return JSONResponse({"ok": True})
 
+
+def fmt(v, nd=4):
+    if v is None:
+        return "None"
+    try:
+        return f"{float(v):.{nd}f}"
+    except Exception:
+        return str(v)
+
+
+@app.post("/webhook3")
+async def handle_webhook3(request: Request):
+    raw = (await request.body()).decode("utf-8", errors="replace").strip()
+
+    if not raw:
+        return JSONResponse({"ok": False, "reason": "empty body"}, status_code=400)
+
+    try:
+        data = json.loads(raw)
+    except json.JSONDecodeError:
+        return JSONResponse(
+            {"ok": False, "reason": "invalid json", "raw": raw},
+            status_code=400
+        )
+
+    event_type = data.get("event")
+    side = data.get("side")
+
+    # 1) ENTRY ALERT
+    if side in ("LONG", "SHORT") and event_type is None:
+        pos_size = data.get("posSize")
+        risk_dist = data.get("riskDist")
+        stop_loss = data.get("stopLoss")
+        take_profit = data.get("takeProfit")
+        entry_approx = data.get("entryApprox")
+
+        assumed_equity = 100.0
+        risk_percentage = 6.0
+        assumed_risk_amount = assumed_equity * (risk_percentage / 100.0)
+
+        calc_pos_size = None
+        position_notional = None
+        leverage_multiple = None
+
+        try:
+            risk_dist_f = float(risk_dist)
+            entry_approx_f = float(entry_approx)
+
+            if risk_dist_f > 0:
+                # 자산 100, 리스크 6% 기준으로 새로 계산
+                calc_pos_size = assumed_risk_amount / risk_dist_f
+                position_notional = calc_pos_size * entry_approx_f
+                leverage_multiple = position_notional / assumed_equity
+        except Exception:
+            pass
+
+        msg = (
+            f"[TEST] Binance BTCUSD 30m \n"
+            f"[BTCUSD] {side} ENTRY\n"
+            f"Entry: {fmt(entry_approx)}\n"
+            f"SL: {fmt(stop_loss)}\n"
+            f"TP: {fmt(take_profit)}\n"
+            f"Required Multiple: {fmt(leverage_multiple, 2)}x"
+        )
+
+        await send_telegram_message(msg)
+        return JSONResponse({"ok": True, "type": "entry_alert", "side": side})
+
+    # 2) STOP LOSS UPDATE ALERT
+    if event_type == "LONG_SL_UPDATE":
+        active_sl = data.get("activeLongSL")
+        trail_sl = data.get("trailLongSL")
+        avg_price = data.get("avgPrice")
+
+        msg = (
+            f"[TEST] Binance BTCUSD 30m \n"
+            f"[BTCUSD] LONG SL UPDATE\n"
+            f"AvgPrice: {fmt(avg_price)}\n"
+            f"Active SL: {fmt(active_sl)}\n"
+            f"Trail SL: {fmt(trail_sl)}"
+        )
+
+        await send_telegram_message(msg)
+        return JSONResponse({"ok": True, "type": "sl_update", "side": "LONG"})
+
+    if event_type == "SHORT_SL_UPDATE":
+        active_sl = data.get("activeShortSL")
+        trail_sl = data.get("trailShortSL")
+        avg_price = data.get("avgPrice")
+
+        msg = (
+            f"[TEST] Binance BTCUSD 30m \n"
+            f"[BTCUSD] SHORT SL UPDATE\n"
+            f"AvgPrice: {fmt(avg_price)}\n"
+            f"Active SL: {fmt(active_sl)}\n"
+            f"Trail SL: {fmt(trail_sl)}"
+        )
+
+        await send_telegram_message(msg)
+        return JSONResponse({"ok": True, "type": "sl_update", "side": "SHORT"})
+
+    # 3) EXIT ALERT
+    if event_type == "LONG_EXIT":
+        reason = data.get("reason")
+        exit_price = data.get("exitPrice")
+
+        msg = (
+            f"[TEST] Binance BTCUSD 30m \n"
+            f"[BTCUSD] LONG EXIT\n"
+            f"Reason: {reason}\n"
+            f"ExitPrice: {fmt(exit_price)}"
+        )
+
+        await send_telegram_message(msg)
+        return JSONResponse({"ok": True, "type": "exit_alert", "side": "LONG"})
+
+    if event_type == "SHORT_EXIT":
+        reason = data.get("reason")
+        exit_price = data.get("exitPrice")
+
+        msg = (
+            f"[TEST] Binance BTCUSD 30m \n"
+            f"[BTCUSD] SHORT EXIT\n"
+            f"Reason: {reason}\n"
+            f"ExitPrice: {fmt(exit_price)}"
+        )
+
+        await send_telegram_message(msg)
+        return JSONResponse({"ok": True, "type": "exit_alert", "side": "SHORT"})
+
+    return JSONResponse(
+        {"ok": False, "reason": "unsupported payload", "payload": data, "raw": raw},
+        status_code=400
+    )
 
 if __name__ == "__main__":
     cur_balance = trading.get_usdtm_futures_balance()

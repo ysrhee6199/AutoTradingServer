@@ -223,7 +223,7 @@ def main():
 
     fills = buy.get("fills", [])
     commission_btc = Decimal("0")
-s
+
     for f in fills:
         if f.get("commissionAsset") == "BTC":
             commission_btc += Decimal(f["commission"])
