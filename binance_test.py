@@ -180,26 +180,46 @@ def get_cross_margin_account():
 
 def print_cross_margin_balance():
     account = get_cross_margin_account()
+    usdt_asset = get_asset_from_account(account, "USDT")
 
     total_asset_btc = Decimal(account.get("totalAssetOfBtc", "0"))
     total_liability_btc = Decimal(account.get("totalLiabilityOfBtc", "0"))
     total_net_asset_btc = Decimal(account.get("totalNetAssetOfBtc", "0"))
     total_collateral_usdt = Decimal(account.get("TotalCollateralValueInUSDT", "0"))
+    usdt_free = Decimal(usdt_asset.get("free", "0"))
+    usdt_locked = Decimal(usdt_asset.get("locked", "0"))
+    usdt_borrowed = Decimal(usdt_asset.get("borrowed", "0"))
+    usdt_interest = Decimal(usdt_asset.get("interest", "0"))
+    usdt_net_asset = Decimal(usdt_asset.get("netAsset", "0"))
+    balance_for_entry = total_collateral_usdt
+
+    if balance_for_entry <= 0:
+        balance_for_entry = usdt_net_asset
 
     print("[MARGIN BALANCE] Cross Margin account")
     print(f"[MARGIN BALANCE] TotalCollateralValueInUSDT={total_collateral_usdt:.4f} USDT")
+    print(
+        "[MARGIN BALANCE] "
+        f"USDT free={usdt_free} locked={usdt_locked} "
+        f"borrowed={usdt_borrowed} interest={usdt_interest} netAsset={usdt_net_asset}"
+    )
+    print(f"[MARGIN BALANCE] balanceForEntry={balance_for_entry:.4f} USDT")
     print(f"[MARGIN BALANCE] totalNetAssetOfBtc={total_net_asset_btc} BTC")
     print(f"[MARGIN BALANCE] totalAssetOfBtc={total_asset_btc} BTC")
     print(f"[MARGIN BALANCE] totalLiabilityOfBtc={total_liability_btc} BTC")
-    return total_collateral_usdt
+    return balance_for_entry
 
 
-def get_cross_margin_asset(asset_name: str):
-    account = get_cross_margin_account()
+def get_asset_from_account(account: dict, asset_name: str):
     for asset in account.get("userAssets", []):
         if asset.get("asset") == asset_name:
             return asset
     return {}
+
+
+def get_cross_margin_asset(asset_name: str):
+    account = get_cross_margin_account()
+    return get_asset_from_account(account, asset_name)
 
 
 def get_free_margin_asset_amount(asset_name: str) -> Decimal:
