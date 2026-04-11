@@ -97,6 +97,18 @@ def get_symbol_filters(symbol: str):
     return filters
 
 
+def get_symbol_price(symbol: str) -> Decimal:
+    ticker = public_get("/api/v3/ticker/price", {"symbol": symbol})
+    return Decimal(ticker["price"])
+
+
+def get_min_notional(filters: dict) -> Decimal:
+    notional_filter = filters.get("NOTIONAL") or filters.get("MIN_NOTIONAL")
+    if not notional_filter:
+        return Decimal("0")
+    return Decimal(notional_filter.get("minNotional", "0"))
+
+
 def floor_to_step(value: Decimal, step: str) -> Decimal:
     step_dec = Decimal(step)
     if step_dec == 0:
@@ -171,6 +183,14 @@ def place_cross_margin_market_sell(symbol: str, qty_str: str):
             "sideEffectType": "AUTO_REPAY",
             "newOrderRespType": "FULL",
         },
+    )
+
+
+def manual_liquidate_cross_margin():
+    return signed_request(
+        "POST",
+        "/sapi/v1/margin/manual-liquidation",
+        {"type": "MARGIN"},
     )
 
 
@@ -260,6 +280,7 @@ def main():
 
     step_size = qty_filter["stepSize"]
     min_qty = Decimal(qty_filter["minQty"])
+    min_notional = get_min_notional(filters)
 
     current_balance_usdt = print_cross_margin_balance()
     buy_usdt = floor_to_step(
@@ -333,7 +354,23 @@ def main():
     free_btc = get_free_margin_asset_amount("BTC")
     final_sell_qty = floor_to_step(min(free_btc, sell_qty), step_size)
     if final_sell_qty < min_qty:
-        print(f"[SELL ALL] skipped: free BTC {free_btc} < minQty {min_qty}")
+        print(f"[SELL ALL] market sell skipped: free BTC {free_btc} < minQty {min_qty}")
+        print("[STEP 4-1] Try cross margin manual liquidation")
+        liquidation = manual_liquidate_cross_margin()
+        print("[MANUAL LIQUIDATION]", liquidation)
+        return
+
+    current_price = get_symbol_price(SYMBOL)
+    final_sell_notional = final_sell_qty * current_price
+    if final_sell_notional < min_notional:
+        print(
+            "[SELL ALL] market sell skipped: "
+            f"notional {final_sell_notional:.8f} USDT < minNotional {min_notional} USDT "
+            f"(qty={final_sell_qty}, price={current_price})"
+        )
+        print("[STEP 4-1] Try cross margin manual liquidation")
+        liquidation = manual_liquidate_cross_margin()
+        print("[MANUAL LIQUIDATION]", liquidation)
         return
 
     try:
