@@ -239,6 +239,33 @@ def get_free_margin_asset_amount(asset_name: str) -> Decimal:
     return Decimal(asset.get("free", "0"))
 
 
+def print_margin_asset(asset_name: str):
+    asset = get_cross_margin_asset(asset_name)
+    free = Decimal(asset.get("free", "0"))
+    locked = Decimal(asset.get("locked", "0"))
+    borrowed = Decimal(asset.get("borrowed", "0"))
+    interest = Decimal(asset.get("interest", "0"))
+    net_asset = Decimal(asset.get("netAsset", "0"))
+    print(
+        f"[MARGIN ASSET] {asset_name} "
+        f"free={free} locked={locked} borrowed={borrowed} "
+        f"interest={interest} netAsset={net_asset}"
+    )
+    return asset
+
+
+def wait_for_free_margin_asset(asset_name: str, min_amount: Decimal, attempts: int = 5, delay: int = 2):
+    asset = {}
+    for i in range(attempts):
+        asset = get_cross_margin_asset(asset_name)
+        free = Decimal(asset.get("free", "0"))
+        if free >= min_amount:
+            return free
+        print(f"[WAIT ASSET] {asset_name} free={free} < {min_amount}, retry {i + 1}/{attempts}")
+        time.sleep(delay)
+    return Decimal(asset.get("free", "0"))
+
+
 def safe_cancel_oco(symbol: str, order_list_id: int | None):
     if order_list_id is None:
         return None
@@ -343,9 +370,10 @@ def main():
     print("[STEP 4] Cancel current OCO and market-sell all free BTC")
     safe_cancel_oco(SYMBOL, oco2_id)
 
-    free_btc = get_free_margin_asset_amount("BTC")
+    free_btc = wait_for_free_margin_asset("BTC", min_qty)
     final_sell_qty = floor_to_step(free_btc, step_size)
     if final_sell_qty < min_qty:
+        print_margin_asset("BTC")
         raise RuntimeError(f"SELL ALL 불가: free BTC {free_btc} < minQty {min_qty}")
 
     current_price = get_symbol_price(SYMBOL)
