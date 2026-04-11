@@ -186,14 +186,6 @@ def place_cross_margin_market_sell(symbol: str, qty_str: str):
     )
 
 
-def manual_liquidate_cross_margin():
-    return signed_request(
-        "POST",
-        "/sapi/v1/margin/manual-liquidation",
-        {"type": "MARGIN"},
-    )
-
-
 def get_cross_margin_account():
     return signed_request("GET", "/sapi/v1/margin/account", {})
 
@@ -348,30 +340,23 @@ def main():
     print(f"[WAIT] sleeping {WAIT_SECONDS} seconds...")
     time.sleep(WAIT_SECONDS)
 
-    print("[STEP 4] Cancel current OCO and market-sell remaining entry BTC")
+    print("[STEP 4] Cancel current OCO and market-sell all free BTC")
     safe_cancel_oco(SYMBOL, oco2_id)
 
     free_btc = get_free_margin_asset_amount("BTC")
-    final_sell_qty = floor_to_step(min(free_btc, sell_qty), step_size)
+    final_sell_qty = floor_to_step(free_btc, step_size)
     if final_sell_qty < min_qty:
-        print(f"[SELL ALL] market sell skipped: free BTC {free_btc} < minQty {min_qty}")
-        print("[STEP 4-1] Try cross margin manual liquidation")
-        liquidation = manual_liquidate_cross_margin()
-        print("[MANUAL LIQUIDATION]", liquidation)
-        return
+        raise RuntimeError(f"SELL ALL 불가: free BTC {free_btc} < minQty {min_qty}")
 
     current_price = get_symbol_price(SYMBOL)
     final_sell_notional = final_sell_qty * current_price
     if final_sell_notional < min_notional:
-        print(
-            "[SELL ALL] market sell skipped: "
+        raise RuntimeError(
+            "SELL ALL 불가: "
             f"notional {final_sell_notional:.8f} USDT < minNotional {min_notional} USDT "
-            f"(qty={final_sell_qty}, price={current_price})"
+            f"(qty={final_sell_qty}, price={current_price}). "
+            "부채가 없으면 manual-liquidation도 사용할 수 없고, 이 잔량은 주문 최소금액 미만 dust일 수 있습니다."
         )
-        print("[STEP 4-1] Try cross margin manual liquidation")
-        liquidation = manual_liquidate_cross_margin()
-        print("[MANUAL LIQUIDATION]", liquidation)
-        return
 
     try:
         sell = place_cross_margin_market_sell(SYMBOL, decimal_to_str(final_sell_qty))
