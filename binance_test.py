@@ -3,7 +3,7 @@ import time
 import hmac
 import hashlib
 import requests
-from decimal import Decimal, ROUND_DOWN
+from decimal import Decimal
 from urllib.parse import urlencode
 
 API_KEY = os.getenv("BINANCE_API_KEY", "")
@@ -13,9 +13,12 @@ BASE_URL = "https://api.binance.com"   # live
 SYMBOL = "BTCUSDT"
 IS_ISOLATED = "FALSE"                  # Cross Margin
 
-BUY_USDT = Decimal("250")
-STOP1 = Decimal("66000")
-STOP2 = Decimal("65500")
+ENTRY_BALANCE_RATIO = Decimal("0.40")
+ENTRY_LEVERAGE_MULTIPLE = Decimal("1.60")
+TAKE_PROFIT = Decimal("73000")
+STOP1 = Decimal("69000")
+STOP2 = Decimal("70000")
+WAIT_SECONDS = 60
 
 session = requests.Session()
 session.headers.update({"X-MBX-APIKEY": API_KEY})
@@ -109,7 +112,6 @@ def decimal_to_str(v: Decimal) -> str:
 # Margin API actions
 # ---------------------------
 def place_cross_margin_market_buy(symbol: str, quote_order_qty: Decimal):
-    # Buy 250 USDT worth of BTC.
     # AUTO_BORROW_REPAY will auto-borrow if needed.
     return signed_request(
         "POST",
@@ -127,33 +129,31 @@ def place_cross_margin_market_buy(symbol: str, quote_order_qty: Decimal):
     )
 
 
-def place_cross_margin_stop_loss_sell(symbol: str, qty_str: str, stop_price: Decimal):
-    # STOP_LOSS = market stop.
-    # When stopPrice is hit, sell at market.
+def place_cross_margin_oco_sell(symbol: str, qty_str: str, take_profit: Decimal, stop_loss: Decimal):
     return signed_request(
         "POST",
-        "/sapi/v1/margin/order",
+        "/sapi/v1/margin/order/oco",
         {
             "symbol": symbol,
             "isIsolated": IS_ISOLATED,
             "side": "SELL",
-            "type": "STOP_LOSS",
             "quantity": qty_str,
-            "stopPrice": decimal_to_str(stop_price),
+            "price": decimal_to_str(take_profit),
+            "stopPrice": decimal_to_str(stop_loss),
             "sideEffectType": "AUTO_REPAY",
-            "newOrderRespType": "ACK",
+            "newOrderRespType": "FULL",
         },
     )
 
 
-def cancel_margin_order(symbol: str, order_id: int):
+def cancel_margin_oco(symbol: str, order_list_id: int):
     return signed_request(
         "DELETE",
-        "/sapi/v1/margin/order",
+        "/sapi/v1/margin/orderList",
         {
             "symbol": symbol,
             "isIsolated": IS_ISOLATED,
-            "orderId": order_id,
+            "orderListId": order_list_id,
         },
     )
 
@@ -174,15 +174,48 @@ def place_cross_margin_market_sell(symbol: str, qty_str: str):
     )
 
 
-def safe_cancel(symbol: str, order_id: int | None):
-    if order_id is None:
+def get_cross_margin_account():
+    return signed_request("GET", "/sapi/v1/margin/account", {})
+
+
+def print_cross_margin_balance():
+    account = get_cross_margin_account()
+
+    total_asset_btc = Decimal(account.get("totalAssetOfBtc", "0"))
+    total_liability_btc = Decimal(account.get("totalLiabilityOfBtc", "0"))
+    total_net_asset_btc = Decimal(account.get("totalNetAssetOfBtc", "0"))
+    total_collateral_usdt = Decimal(account.get("TotalCollateralValueInUSDT", "0"))
+
+    print("[MARGIN BALANCE] Cross Margin account")
+    print(f"[MARGIN BALANCE] TotalCollateralValueInUSDT={total_collateral_usdt:.4f} USDT")
+    print(f"[MARGIN BALANCE] totalNetAssetOfBtc={total_net_asset_btc} BTC")
+    print(f"[MARGIN BALANCE] totalAssetOfBtc={total_asset_btc} BTC")
+    print(f"[MARGIN BALANCE] totalLiabilityOfBtc={total_liability_btc} BTC")
+    return total_collateral_usdt
+
+
+def get_cross_margin_asset(asset_name: str):
+    account = get_cross_margin_account()
+    for asset in account.get("userAssets", []):
+        if asset.get("asset") == asset_name:
+            return asset
+    return {}
+
+
+def get_free_margin_asset_amount(asset_name: str) -> Decimal:
+    asset = get_cross_margin_asset(asset_name)
+    return Decimal(asset.get("free", "0"))
+
+
+def safe_cancel_oco(symbol: str, order_list_id: int | None):
+    if order_list_id is None:
         return None
     try:
-        result = cancel_margin_order(symbol, order_id)
-        print(f"[CANCEL] success: {result}")
+        result = cancel_margin_oco(symbol, order_list_id)
+        print(f"[CANCEL OCO] success: {result}")
         return result
     except Exception as e:
-        print(f"[CANCEL] skipped/failed: {e}")
+        print(f"[CANCEL OCO] skipped/failed: {e}")
         return None
 
 
@@ -193,12 +226,13 @@ def main():
     if not API_KEY or not API_SECRET:
         raise RuntimeError("BINANCE_API_KEY / BINANCE_API_SECRET 환경변수를 설정하세요.")
 
+    print_cross_margin_balance()
+
+    print(f"[WAIT] sleeping {WAIT_SECONDS} seconds before entry...")
+    time.sleep(WAIT_SECONDS)
+
     print("[INFO] Loading symbol filters...")
     filters = get_symbol_filters(SYMBOL)
-
-    # For market sell qty validation, MARKET_LOT_SIZE is the most relevant if present.
-    market_lot = filters.get("MARKET_LOT_SIZE")
-    lot_size = filters.get("LOT_SIZE")
 
     qty_filter = filters["LOT_SIZE"]
     if not qty_filter:
@@ -207,8 +241,21 @@ def main():
     step_size = qty_filter["stepSize"]
     min_qty = Decimal(qty_filter["minQty"])
 
-    print("[STEP 1] 250 USDT BTC market buy with AUTO_BORROW_REPAY")
-    buy = place_cross_margin_market_buy(SYMBOL, BUY_USDT)
+    current_balance_usdt = print_cross_margin_balance()
+    buy_usdt = floor_to_step(
+        current_balance_usdt * ENTRY_BALANCE_RATIO * ENTRY_LEVERAGE_MULTIPLE,
+        "0.01",
+    )
+
+    if buy_usdt <= 0:
+        raise RuntimeError(f"매수 금액이 0 이하입니다: {buy_usdt}")
+
+    print(
+        "[STEP 1] "
+        f"{buy_usdt} USDT BTC market buy "
+        f"({ENTRY_BALANCE_RATIO * 100}% balance * {ENTRY_LEVERAGE_MULTIPLE}x)"
+    )
+    buy = place_cross_margin_market_buy(SYMBOL, buy_usdt)
     print("[BUY]", buy)
 
     executed_qty_raw = buy.get("executedQty")
@@ -238,37 +285,43 @@ def main():
     qty_str = decimal_to_str(sell_qty)
     print(f"[INFO] executedQty={executed_qty_raw}, roundedSellQty={qty_str}")
 
-    print("[STEP 2] Place initial stop-loss at 66000")
-    stop1 = place_cross_margin_stop_loss_sell(SYMBOL, qty_str, STOP1)
-    print("[STOP1]", stop1)
-    stop1_id = stop1.get("orderId")
+    print(f"[STEP 2] Place OCO sell TP {TAKE_PROFIT} / SL {STOP1}")
+    oco1 = place_cross_margin_oco_sell(SYMBOL, qty_str, TAKE_PROFIT, STOP1)
+    print("[OCO1]", oco1)
+    oco1_id = oco1.get("orderListId")
 
-    print("[WAIT] sleeping 60 seconds...")
-    time.sleep(60)
+    print(f"[WAIT] sleeping {WAIT_SECONDS} seconds...")
+    time.sleep(WAIT_SECONDS)
 
-    print("[STEP 3] Cancel old stop and move stop-loss to 65500")
-    safe_cancel(SYMBOL, stop1_id)
+    print(f"[STEP 3] Cancel old OCO and move SL to {STOP2}")
+    safe_cancel_oco(SYMBOL, oco1_id)
 
-    stop2_id = None
+    oco2_id = None
     try:
-        stop2 = place_cross_margin_stop_loss_sell(SYMBOL, qty_str, STOP2)
-        print("[STOP2]", stop2)
-        stop2_id = stop2.get("orderId")
+        oco2 = place_cross_margin_oco_sell(SYMBOL, qty_str, TAKE_PROFIT, STOP2)
+        print("[OCO2]", oco2)
+        oco2_id = oco2.get("orderListId")
     except Exception as e:
-        print(f"[STOP2] failed: {e}")
+        print(f"[OCO2] failed: {e}")
 
-    print("[WAIT] sleeping 60 seconds...")
-    time.sleep(60)
+    print(f"[WAIT] sleeping {WAIT_SECONDS} seconds...")
+    time.sleep(WAIT_SECONDS)
 
-    print("[STEP 4] Cancel current stop and market-sell all")
-    safe_cancel(SYMBOL, stop2_id)
+    print("[STEP 4] Cancel current OCO and market-sell remaining entry BTC")
+    safe_cancel_oco(SYMBOL, oco2_id)
+
+    free_btc = get_free_margin_asset_amount("BTC")
+    final_sell_qty = floor_to_step(min(free_btc, sell_qty), step_size)
+    if final_sell_qty < min_qty:
+        print(f"[SELL ALL] skipped: free BTC {free_btc} < minQty {min_qty}")
+        return
 
     try:
-        sell = place_cross_margin_market_sell(SYMBOL, qty_str)
+        sell = place_cross_margin_market_sell(SYMBOL, decimal_to_str(final_sell_qty))
         print("[SELL ALL]", sell)
     except Exception as e:
         print(f"[SELL ALL] failed: {e}")
-        print("[NOTE] 이미 손절이 먼저 체결되어 포지션이 없을 수 있습니다.")
+        print("[NOTE] 이미 TP/SL이 먼저 체결되어 포지션이 없을 수 있습니다.")
 
 
 if __name__ == "__main__":
