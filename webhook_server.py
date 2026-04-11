@@ -26,8 +26,8 @@ ORDER_BALANCE_RATIO = 0.2
 BTC_LEVERAGE = 4
 ETH_LEVERAGE = 3
 cur_balance = 0
-LONG_RISK_PERCENT = 9.0
-SHORT_RISK_PERCENT = 7.0
+LONG_RISK_PERCENT = 10.0
+SHORT_RISK_PERCENT = 5.0
 FIXED_LEVERAGE = 10.0
 SIGNAL_MAP = {
     "buy": "buy",
@@ -79,6 +79,7 @@ async def handle_webhook(request: Request):
 
 @app.post("/webhook2")
 async def handle_webhook2(request: Request):
+    global prev_balance
     raw = (await request.body()).decode("utf-8", errors="replace").strip()
 
     if not raw:
@@ -152,6 +153,10 @@ async def handle_webhook2(request: Request):
 
     total_equity = await run_in_threadpool(trading.get_usdtm_futures_total_equity)
     total_equity = float(total_equity)
+    if(total_equity >= prev_balance):
+        prev_balance = total_equity
+    else:
+        total_equity = prev_balance
 
     if total_equity <= 0:
         return JSONResponse({"ok": False, "reason": "insufficient balance"}, status_code=400)
