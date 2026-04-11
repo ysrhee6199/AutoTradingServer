@@ -15,9 +15,13 @@ IS_ISOLATED = "FALSE"                  # Cross Margin
 
 ENTRY_BALANCE_RATIO = Decimal("0.40")
 ENTRY_LEVERAGE_MULTIPLE = Decimal("1.60")
-TAKE_PROFIT = Decimal("73000")
-STOP1 = Decimal("69000")
-STOP2 = Decimal("70000")
+TRADE_SIDE = "SHORT"                   # "LONG" or "SHORT"
+LONG_TAKE_PROFIT = Decimal("73000")
+LONG_STOP1 = Decimal("69000")
+LONG_STOP2 = Decimal("70000")
+SHORT_TAKE_PROFIT = Decimal("69000")
+SHORT_STOP1 = Decimal("73000")
+SHORT_STOP2 = Decimal("70000")
 WAIT_SECONDS = 60
 
 session = requests.Session()
@@ -116,6 +120,16 @@ def floor_to_step(value: Decimal, step: str) -> Decimal:
     return (value // step_dec) * step_dec
 
 
+def ceil_to_step(value: Decimal, step: str) -> Decimal:
+    step_dec = Decimal(step)
+    if step_dec == 0:
+        return value
+    floored = (value // step_dec) * step_dec
+    if floored == value:
+        return value
+    return floored + step_dec
+
+
 def decimal_to_str(v: Decimal) -> str:
     return format(v, "f")
 
@@ -124,7 +138,6 @@ def decimal_to_str(v: Decimal) -> str:
 # Margin API actions
 # ---------------------------
 def place_cross_margin_market_buy(symbol: str, quote_order_qty: Decimal):
-    # AUTO_BORROW_REPAY will auto-borrow if needed.
     return signed_request(
         "POST",
         "/sapi/v1/margin/order",
@@ -141,6 +154,22 @@ def place_cross_margin_market_buy(symbol: str, quote_order_qty: Decimal):
     )
 
 
+def place_cross_margin_market_buy_quantity(symbol: str, qty_str: str):
+    return signed_request(
+        "POST",
+        "/sapi/v1/margin/order",
+        {
+            "symbol": symbol,
+            "isIsolated": IS_ISOLATED,
+            "side": "BUY",
+            "type": "MARKET",
+            "quantity": qty_str,
+            "sideEffectType": "AUTO_REPAY",
+            "newOrderRespType": "FULL",
+        },
+    )
+
+
 def place_cross_margin_oco_sell(symbol: str, qty_str: str, take_profit: Decimal, stop_loss: Decimal):
     return signed_request(
         "POST",
@@ -149,6 +178,23 @@ def place_cross_margin_oco_sell(symbol: str, qty_str: str, take_profit: Decimal,
             "symbol": symbol,
             "isIsolated": IS_ISOLATED,
             "side": "SELL",
+            "quantity": qty_str,
+            "price": decimal_to_str(take_profit),
+            "stopPrice": decimal_to_str(stop_loss),
+            "sideEffectType": "AUTO_REPAY",
+            "newOrderRespType": "FULL",
+        },
+    )
+
+
+def place_cross_margin_oco_buy(symbol: str, qty_str: str, take_profit: Decimal, stop_loss: Decimal):
+    return signed_request(
+        "POST",
+        "/sapi/v1/margin/order/oco",
+        {
+            "symbol": symbol,
+            "isIsolated": IS_ISOLATED,
+            "side": "BUY",
             "quantity": qty_str,
             "price": decimal_to_str(take_profit),
             "stopPrice": decimal_to_str(stop_loss),
@@ -181,6 +227,23 @@ def place_cross_margin_market_sell(symbol: str, qty_str: str):
             "type": "MARKET",
             "quantity": qty_str,
             "sideEffectType": "AUTO_REPAY",
+            "newOrderRespType": "FULL",
+        },
+    )
+
+
+def place_cross_margin_market_sell_borrow(symbol: str, qty_str: str):
+    return signed_request(
+        "POST",
+        "/sapi/v1/margin/order",
+        {
+            "symbol": symbol,
+            "isIsolated": IS_ISOLATED,
+            "side": "SELL",
+            "type": "MARKET",
+            "quantity": qty_str,
+            "sideEffectType": "AUTO_BORROW_REPAY",
+            "autoRepayAtCancel": "true",
             "newOrderRespType": "FULL",
         },
     )
@@ -234,6 +297,11 @@ def get_cross_margin_asset(asset_name: str):
     return get_asset_from_account(account, asset_name)
 
 
+def get_margin_asset_liability(asset_name: str) -> Decimal:
+    asset = get_cross_margin_asset(asset_name)
+    return Decimal(asset.get("borrowed", "0")) + Decimal(asset.get("interest", "0"))
+
+
 def get_free_margin_asset_amount(asset_name: str) -> Decimal:
     asset = get_cross_margin_asset(asset_name)
     return Decimal(asset.get("free", "0"))
@@ -278,18 +346,7 @@ def safe_cancel_oco(symbol: str, order_list_id: int | None):
         return None
 
 
-# ---------------------------
-# Main
-# ---------------------------
-def main():
-    if not API_KEY or not API_SECRET:
-        raise RuntimeError("BINANCE_API_KEY / BINANCE_API_SECRET 환경변수를 설정하세요.")
-
-    print_cross_margin_balance()
-
-    print(f"[WAIT] sleeping {WAIT_SECONDS} seconds before entry...")
-    time.sleep(WAIT_SECONDS)
-
+def load_trade_context():
     print("[INFO] Loading symbol filters...")
     filters = get_symbol_filters(SYMBOL)
 
@@ -297,68 +354,73 @@ def main():
     if not qty_filter:
         raise RuntimeError("LOT_SIZE / MARKET_LOT_SIZE filter not found.")
 
-    step_size = qty_filter["stepSize"]
-    min_qty = Decimal(qty_filter["minQty"])
-    min_notional = get_min_notional(filters)
+    return {
+        "step_size": qty_filter["stepSize"],
+        "min_qty": Decimal(qty_filter["minQty"]),
+        "min_notional": get_min_notional(filters),
+    }
 
+
+def get_entry_notional_usdt() -> Decimal:
     current_balance_usdt = print_cross_margin_balance()
-    buy_usdt = floor_to_step(
+    entry_notional_usdt = floor_to_step(
         current_balance_usdt * ENTRY_BALANCE_RATIO * ENTRY_LEVERAGE_MULTIPLE,
         "0.01",
     )
+    if entry_notional_usdt <= 0:
+        raise RuntimeError(f"진입 금액이 0 이하입니다: {entry_notional_usdt}")
+    return entry_notional_usdt
 
-    if buy_usdt <= 0:
-        raise RuntimeError(f"매수 금액이 0 이하입니다: {buy_usdt}")
+
+def run_long_test(ctx: dict):
+    step_size = ctx["step_size"]
+    min_qty = ctx["min_qty"]
+    min_notional = ctx["min_notional"]
+    buy_usdt = get_entry_notional_usdt()
 
     print(
         "[STEP 1] "
-        f"{buy_usdt} USDT BTC market buy "
+        f"{buy_usdt} USDT BTC market buy LONG "
         f"({ENTRY_BALANCE_RATIO * 100}% balance * {ENTRY_LEVERAGE_MULTIPLE}x)"
     )
     buy = place_cross_margin_market_buy(SYMBOL, buy_usdt)
-    print("[BUY]", buy)
+    print("[LONG BUY]", buy)
 
     executed_qty_raw = buy.get("executedQty")
     status = buy.get("status")
 
     if not executed_qty_raw:
-        raise RuntimeError("executedQty가 없습니다. 매수 응답을 확인하세요.")
+        raise RuntimeError("executedQty가 없습니다. 롱 진입 매수 응답을 확인하세요.")
     if status not in ("FILLED", "PARTIALLY_FILLED"):
-        raise RuntimeError(f"매수 주문 상태가 예상과 다릅니다: {status}")
+        raise RuntimeError(f"롱 진입 주문 상태가 예상과 다릅니다: {status}")
 
     executed_qty = Decimal(executed_qty_raw)
-
-    fills = buy.get("fills", [])
     commission_btc = Decimal("0")
+    for fill in buy.get("fills", []):
+        if fill.get("commissionAsset") == "BTC":
+            commission_btc += Decimal(fill["commission"])
 
-    for f in fills:
-        if f.get("commissionAsset") == "BTC":
-            commission_btc += Decimal(f["commission"])
+    close_qty = floor_to_step(executed_qty - commission_btc, step_size)
+    if close_qty < min_qty:
+        raise RuntimeError(f"체결 수량이 최소 주문 수량보다 작습니다: {close_qty} < {min_qty}")
 
-    net_qty = executed_qty - commission_btc
-    sell_qty = floor_to_step(net_qty, step_size)
-    qty_str = decimal_to_str(sell_qty)
+    qty_str = decimal_to_str(close_qty)
+    print(f"[INFO] executedQty={executed_qty_raw}, roundedCloseQty={qty_str}")
 
-    if sell_qty < min_qty:
-        raise RuntimeError(f"체결 수량이 최소 주문 수량보다 작습니다: {sell_qty} < {min_qty}")
-
-    qty_str = decimal_to_str(sell_qty)
-    print(f"[INFO] executedQty={executed_qty_raw}, roundedSellQty={qty_str}")
-
-    print(f"[STEP 2] Place OCO sell TP {TAKE_PROFIT} / SL {STOP1}")
-    oco1 = place_cross_margin_oco_sell(SYMBOL, qty_str, TAKE_PROFIT, STOP1)
+    print(f"[STEP 2] Place LONG OCO sell TP {LONG_TAKE_PROFIT} / SL {LONG_STOP1}")
+    oco1 = place_cross_margin_oco_sell(SYMBOL, qty_str, LONG_TAKE_PROFIT, LONG_STOP1)
     print("[OCO1]", oco1)
     oco1_id = oco1.get("orderListId")
 
     print(f"[WAIT] sleeping {WAIT_SECONDS} seconds...")
     time.sleep(WAIT_SECONDS)
 
-    print(f"[STEP 3] Cancel old OCO and move SL to {STOP2}")
+    print(f"[STEP 3] Cancel old OCO and move SL to {LONG_STOP2}")
     safe_cancel_oco(SYMBOL, oco1_id)
 
     oco2_id = None
     try:
-        oco2 = place_cross_margin_oco_sell(SYMBOL, qty_str, TAKE_PROFIT, STOP2)
+        oco2 = place_cross_margin_oco_sell(SYMBOL, qty_str, LONG_TAKE_PROFIT, LONG_STOP2)
         print("[OCO2]", oco2)
         oco2_id = oco2.get("orderListId")
     except Exception as e:
@@ -374,24 +436,140 @@ def main():
     final_sell_qty = floor_to_step(free_btc, step_size)
     if final_sell_qty < min_qty:
         print_margin_asset("BTC")
-        raise RuntimeError(f"SELL ALL 불가: free BTC {free_btc} < minQty {min_qty}")
+        print(f"[LONG CLOSE] skipped: free BTC {free_btc} < minQty {min_qty}")
+        return
 
     current_price = get_symbol_price(SYMBOL)
     final_sell_notional = final_sell_qty * current_price
     if final_sell_notional < min_notional:
         raise RuntimeError(
-            "SELL ALL 불가: "
+            "LONG CLOSE 불가: "
             f"notional {final_sell_notional:.8f} USDT < minNotional {min_notional} USDT "
-            f"(qty={final_sell_qty}, price={current_price}). "
-            "부채가 없으면 manual-liquidation도 사용할 수 없고, 이 잔량은 주문 최소금액 미만 dust일 수 있습니다."
+            f"(qty={final_sell_qty}, price={current_price})."
         )
 
     try:
         sell = place_cross_margin_market_sell(SYMBOL, decimal_to_str(final_sell_qty))
-        print("[SELL ALL]", sell)
+        print("[SELL TO CLOSE]", sell)
     except Exception as e:
-        print(f"[SELL ALL] failed: {e}")
+        print(f"[SELL TO CLOSE] failed: {e}")
         print("[NOTE] 이미 TP/SL이 먼저 체결되어 포지션이 없을 수 있습니다.")
+
+
+def run_short_test(ctx: dict):
+    step_size = ctx["step_size"]
+    min_qty = ctx["min_qty"]
+    min_notional = ctx["min_notional"]
+    entry_notional_usdt = get_entry_notional_usdt()
+
+    current_price = get_symbol_price(SYMBOL)
+    short_qty = floor_to_step(entry_notional_usdt / current_price, step_size)
+    entry_notional_check = short_qty * current_price
+
+    if short_qty < min_qty:
+        raise RuntimeError(f"숏 진입 수량이 최소 주문 수량보다 작습니다: {short_qty} < {min_qty}")
+    if entry_notional_check < min_notional:
+        raise RuntimeError(
+            f"숏 진입 금액이 최소 주문금액보다 작습니다: {entry_notional_check:.8f} < {min_notional}"
+        )
+
+    qty_str = decimal_to_str(short_qty)
+
+    print(
+        "[STEP 1] "
+        f"{entry_notional_usdt} USDT BTC market sell SHORT "
+        f"({ENTRY_BALANCE_RATIO * 100}% balance * {ENTRY_LEVERAGE_MULTIPLE}x)"
+    )
+    sell = place_cross_margin_market_sell_borrow(SYMBOL, qty_str)
+    print("[SHORT SELL]", sell)
+
+    executed_qty_raw = sell.get("executedQty")
+    status = sell.get("status")
+
+    if not executed_qty_raw:
+        raise RuntimeError("executedQty가 없습니다. 숏 진입 매도 응답을 확인하세요.")
+    if status not in ("FILLED", "PARTIALLY_FILLED"):
+        raise RuntimeError(f"숏 진입 주문 상태가 예상과 다릅니다: {status}")
+
+    executed_qty = Decimal(executed_qty_raw)
+    close_qty = floor_to_step(executed_qty, step_size)
+    if close_qty < min_qty:
+        raise RuntimeError(f"체결 수량이 최소 주문 수량보다 작습니다: {close_qty} < {min_qty}")
+
+    qty_str = decimal_to_str(close_qty)
+    print(f"[INFO] executedQty={executed_qty_raw}, roundedCloseQty={qty_str}")
+
+    print(f"[STEP 2] Place SHORT OCO buy TP {SHORT_TAKE_PROFIT} / SL {SHORT_STOP1}")
+    oco1 = place_cross_margin_oco_buy(SYMBOL, qty_str, SHORT_TAKE_PROFIT, SHORT_STOP1)
+    print("[OCO1]", oco1)
+    oco1_id = oco1.get("orderListId")
+
+    print(f"[WAIT] sleeping {WAIT_SECONDS} seconds...")
+    time.sleep(WAIT_SECONDS)
+
+    print(f"[STEP 3] Cancel old OCO and move SL to {SHORT_STOP2}")
+    safe_cancel_oco(SYMBOL, oco1_id)
+
+    oco2_id = None
+    try:
+        oco2 = place_cross_margin_oco_buy(SYMBOL, qty_str, SHORT_TAKE_PROFIT, SHORT_STOP2)
+        print("[OCO2]", oco2)
+        oco2_id = oco2.get("orderListId")
+    except Exception as e:
+        print(f"[OCO2] failed: {e}")
+
+    print(f"[WAIT] sleeping {WAIT_SECONDS} seconds...")
+    time.sleep(WAIT_SECONDS)
+
+    print("[STEP 4] Cancel current OCO and market-buy remaining BTC liability")
+    safe_cancel_oco(SYMBOL, oco2_id)
+
+    liability_btc = get_margin_asset_liability("BTC")
+    final_buy_qty = ceil_to_step(liability_btc, step_size)
+    if final_buy_qty < min_qty:
+        print_margin_asset("BTC")
+        print(f"[SHORT CLOSE] skipped: BTC liability {liability_btc} < minQty {min_qty}")
+        return
+
+    current_price = get_symbol_price(SYMBOL)
+    final_buy_notional = final_buy_qty * current_price
+    if final_buy_notional < min_notional:
+        raise RuntimeError(
+            "SHORT CLOSE 불가: "
+            f"notional {final_buy_notional:.8f} USDT < minNotional {min_notional} USDT "
+            f"(qty={final_buy_qty}, price={current_price}). "
+            "남은 부채가 주문 최소금액 미만 dust일 수 있습니다."
+        )
+
+    try:
+        buy = place_cross_margin_market_buy_quantity(SYMBOL, decimal_to_str(final_buy_qty))
+        print("[BUY TO CLOSE]", buy)
+    except Exception as e:
+        print(f"[BUY TO CLOSE] failed: {e}")
+        print("[NOTE] 이미 TP/SL이 먼저 체결되어 포지션이 없을 수 있습니다.")
+
+
+# ---------------------------
+# Main
+# ---------------------------
+def main():
+    if not API_KEY or not API_SECRET:
+        raise RuntimeError("BINANCE_API_KEY / BINANCE_API_SECRET 환경변수를 설정하세요.")
+
+    print_cross_margin_balance()
+
+    print(f"[WAIT] sleeping {WAIT_SECONDS} seconds before entry...")
+    time.sleep(WAIT_SECONDS)
+
+    ctx = load_trade_context()
+    side = TRADE_SIDE.upper()
+
+    if side == "LONG":
+        run_long_test(ctx)
+    elif side == "SHORT":
+        run_short_test(ctx)
+    else:
+        raise RuntimeError(f"지원하지 않는 TRADE_SIDE입니다: {TRADE_SIDE}")
 
 
 if __name__ == "__main__":
