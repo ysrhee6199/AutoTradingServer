@@ -85,6 +85,14 @@ async def handle_webhook2(request: Request):
     if not raw:
         return JSONResponse({"ok": False, "reason": "empty body"}, status_code=400)
 
+    if raw == "exit_long":
+        await run_in_threadpool(trading.close_position_percent, BTC_SYMBOL, "long", 100)
+        return JSONResponse({"ok": True, "type": "exit_long"})
+
+    if raw == "exit_short":
+        await run_in_threadpool(trading.close_position_percent, BTC_SYMBOL, "short", 100)
+        return JSONResponse({"ok": True, "type": "exit_short"})
+
     try:
         data = json.loads(raw)
     except json.JSONDecodeError:
