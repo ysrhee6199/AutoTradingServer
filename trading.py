@@ -205,15 +205,24 @@ def get_market_price(symbol: str = SYMBOL) -> float:
     return float(data["data"][0]["price"])
 
 
-def set_isolated_leverage_50x(symbol: str = SYMBOL, leverage: int = 50):
+def _format_leverage(leverage) -> str:
+    leverage_f = float(leverage)
+    if not leverage_f.is_integer():
+        raise ValueError(f"leverage must be an integer ratio: {leverage}")
+    return str(int(leverage_f))
+
+
+def set_isolated_leverage_50x(symbol: str = SYMBOL, leverage: int = 50, hold_side: str = None):
     # POST /api/v2/mix/account/set-leverage (private)
     # one-way + isolated에서 동일 레버리지면 holdSide 없이 leverage만 사용 가능(문서 설명 참고)
     body = {
         "symbol": symbol,
         "productType": PRODUCT_TYPE,
         "marginCoin": MARGIN_COIN,
-        "leverage": str(leverage),
+        "leverage": _format_leverage(leverage),
     }
+    if hold_side:
+        body["holdSide"] = hold_side
     return _request("POST", "/api/v2/mix/account/set-leverage", body_dict=body, auth=True)
 
 
@@ -249,7 +258,8 @@ def place_market_order_open(side: str, margin_usdt: float = 100.0, leverage: int
     side: "buy"=롱 오픈, "sell"=숏 오픈 (one-way-mode 기준)
     """
     # (권장) 레버리지 먼저 세팅
-    set_isolated_leverage_50x(symbol, leverage)
+    hold_side = "long" if side == "buy" else "short"
+    set_isolated_leverage_50x(symbol, leverage, hold_side)
 
     size_str = calc_size_from_margin_usdt(margin_usdt, leverage, symbol)
     client_oid = str(int(time.time() * 1000)) 
@@ -404,4 +414,3 @@ def get_current_position_side(symbol: str):
     #print("현재 포지션:", side)
   # get_usdtm_futures_balance()
    # get_usdtm_futures_balance()
-
